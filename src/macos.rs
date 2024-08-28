@@ -7,7 +7,7 @@ impl Sysproxy {
     pub fn get_system_proxy() -> Result<Sysproxy> {
         let service = default_network_service().or_else(|e| {
             debug!("Failed to get network service: {:?}", e);
-            default_network_service_by_ns()
+            default_network_service_by_device()
         });
         if let Err(e) = service {
             debug!("Failed to get network service by networksetup: {:?}", e);
@@ -49,7 +49,7 @@ impl Sysproxy {
     pub fn set_system_proxy(&self) -> Result<()> {
         let service = default_network_service().or_else(|e| {
             debug!("Failed to get network service: {:?}", e);
-            default_network_service_by_ns()
+            default_network_service_by_device()
         });
         if let Err(e) = service {
             debug!("Failed to get network service by networksetup: {:?}", e);
@@ -126,7 +126,7 @@ impl Autoproxy {
     pub fn get_auto_proxy() -> Result<Autoproxy> {
         let service = default_network_service().or_else(|e| {
             debug!("Failed to get network service: {:?}", e);
-            default_network_service_by_ns()
+            default_network_service_by_device()
         });
         if let Err(e) = service {
             debug!("Failed to get network service by networksetup: {:?}", e);
@@ -155,7 +155,7 @@ impl Autoproxy {
     pub fn set_auto_proxy(&self) -> Result<()> {
         let service = default_network_service().or_else(|e| {
             debug!("Failed to get network service: {:?}", e);
-            default_network_service_by_ns()
+            default_network_service_by_device()
         });
         if let Err(e) = service {
             debug!("Failed to get network service by networksetup: {:?}", e);
@@ -291,24 +291,24 @@ fn default_network_service() -> Result<String> {
     }
 }
 
-fn default_network_service_by_ns() -> Result<String> {
-    let output = networksetup().arg("-listallnetworkservices").output()?;
+fn default_network_service_by_device() -> Result<String> {
+    let output = Command::new("route")
+        .args(["-n", "get", "default"])
+        .output()?;
     let stdout = from_utf8(&output.stdout).or(Err(Error::ParseStr("output".into())))?;
-    let mut lines = stdout.split('\n');
-    lines.next(); // ignore the tips
-
-    // get the first service
-    match lines.next() {
-        Some(line) => Ok(line.into()),
-        None => Err(Error::NetworkInterface),
-    }
-}
-
-#[allow(dead_code)]
-fn get_service_by_device(device: String) -> Result<String> {
+    let device = device.split("\n").find_map(|s| {
+        let line = s.trim();
+        if line.starts_with("interface:") {
+            let mut interface = line.split(' ');
+            interface.next();
+            interface.next()
+        } else {
+            None
+        }
+    });
+    let device = device.unwrap_or("");
     let output = networksetup().arg("-listallhardwareports").output()?;
     let stdout = from_utf8(&output.stdout).or(Err(Error::ParseStr("output".into())))?;
-
     let hardware = stdout.split("Ethernet Address:").find_map(|s| {
         let lines = s.split("\n");
         let mut hardware = None;
@@ -323,7 +323,7 @@ fn get_service_by_device(device: String) -> Result<String> {
             }
         }
 
-        if device == device_? {
+        if device.unwrap() == device_? {
             hardware
         } else {
             None
