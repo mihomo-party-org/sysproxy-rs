@@ -296,7 +296,7 @@ fn default_network_service_by_device() -> Result<String> {
         .args(["-n", "get", "default"])
         .output()?;
     let stdout = from_utf8(&output.stdout).or(Err(Error::ParseStr("output".into())))?;
-    let device = device.split("\n").find_map(|s| {
+    let device = stdout.split("\n").find_map(|s| {
         let line = s.trim();
         if line.starts_with("interface:") {
             let mut interface = line.split(' ');
