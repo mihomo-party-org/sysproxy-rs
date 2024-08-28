@@ -323,7 +323,7 @@ fn default_network_service_by_device() -> Result<String> {
             }
         }
 
-        if device.unwrap() == device_? {
+        if device == device_? {
             hardware
         } else {
             None
