@@ -32,8 +32,8 @@ pub enum Error {
     #[error(transparent)]
     Io(#[from] std::io::Error),
 
-    #[error("failed to get default network interface")]
-    NetworkInterface,
+    #[error("failed to get network service")]
+    NetworkService,
 
     #[error("failed to set proxy for this environment")]
     NotSupport,

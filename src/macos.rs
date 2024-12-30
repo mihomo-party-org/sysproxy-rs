@@ -4,24 +4,19 @@ use std::{process::Command, str::from_utf8};
 
 impl Sysproxy {
     pub fn get_system_proxy() -> Result<Sysproxy> {
-        let service = default_network_service();
-        if let Err(e) = service {
-            debug!("Failed to get network service by networksetup: {:?}", e);
-            return Err(e);
-        }
-        let service = service.unwrap();
-        let service = service.as_str();
+        let services = listnetworkserviceorder()?;
+        let service = services.first().ok_or(Error::NetworkService)?.0.clone();
 
-        let mut socks = Sysproxy::get_socks(service)?;
+        let mut socks = Sysproxy::get_socks(&service)?;
         debug!("Getting SOCKS proxy: {:?}", socks);
 
-        let http = Sysproxy::get_http(service)?;
+        let http = Sysproxy::get_http(&service)?;
         debug!("Getting HTTP proxy: {:?}", http);
 
-        let https = Sysproxy::get_https(service)?;
+        let https = Sysproxy::get_https(&service)?;
         debug!("Getting HTTPS proxy: {:?}", https);
 
-        let bypass = Sysproxy::get_bypass(service)?;
+        let bypass = Sysproxy::get_bypass(&service)?;
         debug!("Getting bypass domains: {:?}", bypass);
 
         socks.bypass = bypass;
@@ -43,27 +38,28 @@ impl Sysproxy {
     }
 
     pub fn set_system_proxy(&self) -> Result<()> {
-        let service = default_network_service();
-        if let Err(e) = service {
-            debug!("Failed to get network service by networksetup: {:?}", e);
-            return Err(e);
+        let services = listnetworkserviceorder()?;
+
+        for service in services {
+            let service = service.0.clone();
+            if service.is_empty() {
+                continue;
+            }
+            debug!("Use network service: {}", service);
+
+            debug!("Setting SOCKS proxy");
+            self.set_socks(&service)?;
+
+            debug!("Setting HTTP proxy");
+            self.set_https(&service)?;
+
+            debug!("Setting HTTPS proxy");
+            self.set_http(&service)?;
+
+            debug!("Setting bypass domains");
+            self.set_bypass(&service)?;
         }
-        let service = service.unwrap();
-        let service = service.as_str();
 
-        debug!("Use network service: {}", service);
-
-        debug!("Setting SOCKS proxy");
-        self.set_socks(service)?;
-
-        debug!("Setting HTTP proxy");
-        self.set_https(service)?;
-
-        debug!("Setting HTTPS proxy");
-        self.set_http(service)?;
-
-        debug!("Setting bypass domains");
-        self.set_bypass(service)?;
         Ok(())
     }
 
@@ -117,16 +113,11 @@ impl Sysproxy {
 
 impl Autoproxy {
     pub fn get_auto_proxy() -> Result<Autoproxy> {
-        let service = default_network_service();
-        if let Err(e) = service {
-            debug!("Failed to get network service by networksetup: {:?}", e);
-            return Err(e);
-        }
-        let service = service.unwrap();
-        let service = service.as_str();
+        let services = listnetworkserviceorder()?;
+        let service = services.first().ok_or(Error::NetworkService)?.0.clone();
 
         let auto_output = networksetup()
-            .args(["-getautoproxyurl", service])
+            .args(["-getautoproxyurl", &service])
             .output()?;
         let auto = from_utf8(&auto_output.stdout)
             .or(Err(Error::ParseStr("auto".into())))?
@@ -143,13 +134,7 @@ impl Autoproxy {
     }
 
     pub fn set_auto_proxy(&self) -> Result<()> {
-        let service = default_network_service();
-        if let Err(e) = service {
-            debug!("Failed to get network service by networksetup: {:?}", e);
-            return Err(e);
-        }
-        let service = service.unwrap();
-        let service = service.as_str();
+        let services = listnetworkserviceorder()?;
 
         let enable = if self.enable { "on" } else { "off" };
         let url = if self.url.is_empty() {
@@ -157,12 +142,21 @@ impl Autoproxy {
         } else {
             &self.url
         };
-        networksetup()
-            .args(["-setautoproxyurl", service, url])
-            .status()?;
-        networksetup()
-            .args(["-setautoproxystate", service, enable])
-            .status()?;
+
+        for service in services {
+            let service = service.0.clone();
+            if service.is_empty() {
+                continue;
+            }
+            debug!("Use network service: {}", service);
+
+            networksetup()
+                .args(["-setautoproxyurl", &service, url])
+                .status()?;
+            networksetup()
+                .args(["-setautoproxystate", &service, enable])
+                .status()?;
+        }
 
         Ok(())
     }
@@ -255,41 +249,6 @@ fn strip_str<'a>(text: &'a str) -> &'a str {
         .unwrap_or(text)
         .strip_suffix('"')
         .unwrap_or(text)
-}
-
-fn default_network_service() -> Result<String> {
-    let output = Command::new("route")
-        .args(["-n", "get", "default"])
-        .output()?;
-    let stdout = from_utf8(&output.stdout).or(Err(Error::ParseStr("output".into())))?;
-    let device = stdout.split("\n").find_map(|s| {
-        let line = s.trim();
-        if line.starts_with("interface:") {
-            Some(line.replace("interface: ", ""))
-        } else {
-            None
-        }
-    });
-
-    match device {
-        Some(device) => {
-            let service = get_server_by_order(device)?;
-            Ok(service)
-        }
-        None => Err(Error::NetworkInterface),
-    }
-}
-
-fn get_server_by_order(device: String) -> Result<String> {
-    let services = listnetworkserviceorder()?;
-    let service = services
-        .into_iter()
-        .find(|(_, _, d)| d == &device)
-        .map(|(s, _, _)| s);
-    match service {
-        Some(service) => Ok(service),
-        None => Err(Error::NetworkInterface),
-    }
 }
 
 fn listnetworkserviceorder() -> Result<Vec<(String, String, String)>> {
